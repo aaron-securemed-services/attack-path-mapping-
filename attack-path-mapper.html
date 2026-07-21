@@ -1,0 +1,709 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Attack Path Mapper</title>
+<style>
+  :root{
+    --navy:#0d1b3e;
+    --navy-2:#14264f;
+    --navy-3:#1d3468;
+    --white:#ffffff;
+    --green:#2e9e5b;
+    --green-d:#1f7a44;
+    --gray:#6b7280;
+    --gray-l:#9ca3af;
+    --gray-xl:#e5e7eb;
+    --bg:#eef1f5;
+    --panel:#ffffff;
+    --line:#cbd2dc;
+    --shadow:0 2px 8px rgba(13,27,62,.12);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--navy);background:var(--bg);}
+  #app{display:grid;grid-template-columns:230px 1fr 300px;grid-template-rows:52px 1fr;height:100vh;}
+  header{grid-column:1 / -1;background:var(--navy);color:#fff;display:flex;align-items:center;gap:14px;padding:0 16px;box-shadow:var(--shadow);z-index:5;}
+  header h1{font-size:16px;margin:0;font-weight:600;letter-spacing:.3px;}
+  header .sub{font-size:11px;color:var(--gray-l);}
+  header .spacer{flex:1;}
+  header button{background:var(--navy-3);border:1px solid var(--navy-3);}
+  header button:hover{background:var(--green);border-color:var(--green);}
+
+  aside{background:var(--panel);overflow-y:auto;border-right:1px solid var(--line);}
+  aside.right{border-right:none;border-left:1px solid var(--line);}
+  .group{padding:12px 14px;border-bottom:1px solid var(--gray-xl);}
+  .group h2{font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--gray);margin:0 0 9px;font-weight:700;}
+
+  button{font-family:inherit;font-size:13px;padding:7px 10px;border-radius:6px;border:1px solid var(--line);background:#fff;color:var(--navy);cursor:pointer;display:flex;align-items:center;gap:8px;width:100%;transition:.12s;margin-bottom:6px;}
+  button:hover{background:var(--gray-xl);}
+  button:last-child{margin-bottom:0;}
+  button.active{background:var(--navy);color:#fff;border-color:var(--navy);}
+  button.green{background:var(--green);color:#fff;border-color:var(--green);}
+  button.green:hover{background:var(--green-d);}
+  button.danger{color:#b03030;}
+  button.danger:hover{background:#f7dede;}
+  button:disabled{opacity:.45;cursor:not-allowed;}
+  .swatch{width:16px;height:16px;border-radius:3px;flex:0 0 16px;border:2px solid rgba(0,0,0,.15);}
+  .shape-ico{width:18px;height:18px;flex:0 0 18px;}
+
+  main{position:relative;overflow:hidden;background:
+      radial-gradient(circle, #d7deea 1px, transparent 1px);
+    background-size:22px 22px;background-color:#f4f6fa;}
+  svg#canvas{width:100%;height:100%;display:block;cursor:grab;}
+  svg#canvas.grabbing{cursor:grabbing;}
+  svg#canvas.connect{cursor:crosshair;}
+
+  .node-shape{stroke-width:2.5;cursor:pointer;transition:filter .1s;}
+  .node-label{font-size:12px;font-weight:600;pointer-events:none;user-select:none;}
+  .node-type-label{font-size:9px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;pointer-events:none;user-select:none;}
+  .node.selected .node-shape{filter:drop-shadow(0 0 0 3px var(--green));stroke:var(--green);stroke-width:3.5;}
+  .node.disabled{opacity:.4;}
+  .node.disabled .node-shape{stroke-dasharray:5 4;}
+  .node.dim{opacity:.14;}
+  .edge{stroke:var(--gray);stroke-width:2;fill:none;}
+  .edge.hl{stroke:var(--green);stroke-width:3.5;}
+  .edge.dim{opacity:.12;}
+  .edge-hit{stroke:transparent;stroke-width:16;fill:none;cursor:pointer;}
+  .edge-label{font-size:10px;fill:var(--navy-2);pointer-events:none;}
+
+  aside.right .stat{display:flex;justify-content:space-between;align-items:baseline;padding:7px 0;border-bottom:1px dashed var(--gray-xl);}
+  .stat .num{font-size:22px;font-weight:800;color:var(--navy);}
+  .stat.green .num{color:var(--green);}
+  .stat.gray .num{color:var(--gray);}
+  .stat .lbl{font-size:11px;color:var(--gray);text-align:right;max-width:150px;}
+
+  .field{margin-bottom:10px;}
+  .field label{display:block;font-size:11px;color:var(--gray);margin-bottom:3px;font-weight:600;}
+  .field input,.field select,.field textarea{width:100%;font-family:inherit;font-size:13px;padding:6px 8px;border:1px solid var(--line);border-radius:6px;color:var(--navy);}
+  .field textarea{resize:vertical;min-height:52px;}
+  .empty{color:var(--gray-l);font-size:12px;font-style:italic;}
+
+  .pathlist{max-height:230px;overflow-y:auto;}
+  .path-item{font-size:11px;padding:7px 8px;border:1px solid var(--gray-xl);border-radius:6px;margin-bottom:6px;cursor:pointer;line-height:1.4;background:#fafbfc;}
+  .path-item:hover{border-color:var(--green);background:#f0f9f3;}
+  .path-item.active{border-color:var(--green);background:#e7f6ec;}
+  .path-item .chain{color:var(--navy-2);}
+  .path-item .arrow{color:var(--gray-l);margin:0 3px;}
+  .path-item .idx{font-weight:700;color:var(--green-d);margin-right:5px;}
+
+  .legend-row{display:flex;align-items:center;gap:8px;font-size:11px;margin-bottom:6px;color:var(--navy-2);}
+  .hint{font-size:11px;color:var(--gray);line-height:1.5;background:#f4f6fa;border:1px solid var(--gray-xl);border-radius:6px;padding:8px;}
+  kbd{background:var(--navy);color:#fff;border-radius:3px;padding:1px 5px;font-size:10px;font-family:monospace;}
+  .connect-banner{position:absolute;top:12px;left:50%;transform:translateX(-50%);background:var(--green);color:#fff;padding:7px 16px;border-radius:20px;font-size:12px;font-weight:600;box-shadow:var(--shadow);z-index:4;display:none;}
+  .connect-banner.show{display:block;}
+  .zoom-controls{position:absolute;bottom:14px;right:14px;display:flex;flex-direction:column;gap:6px;z-index:4;}
+  .zoom-controls button{width:36px;height:36px;justify-content:center;padding:0;font-size:18px;box-shadow:var(--shadow);margin:0;}
+  input[type=file]{display:none;}
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <h1>⛓ Attack Path Mapper</h1>
+    <span class="sub">manual attack-path modeling for lab systems &nbsp;·&nbsp; entry vector → finding → capability → consequence</span>
+    <span class="spacer"></span>
+    <button style="width:auto" id="btnSave">💾 Save</button>
+    <button style="width:auto" id="btnLoad">📂 Load</button>
+    <button style="width:auto" id="btnPng">🖼 Export SVG</button>
+    <button style="width:auto" id="btnSample">✨ Sample</button>
+    <button style="width:auto" class="danger" id="btnClear">🗑 Clear</button>
+    <input type="file" id="fileInput" accept="application/json">
+  </header>
+
+  <!-- LEFT PANEL -->
+  <aside class="left">
+    <div class="group">
+      <h2>Add Node</h2>
+      <button data-add="entry"><span class="shape-ico" id="ico-entry"></span>Entry Vector</button>
+      <button data-add="finding"><span class="shape-ico" id="ico-finding"></span>Finding</button>
+      <button data-add="artifact"><span class="shape-ico" id="ico-artifact"></span>Artifact / Capability</button>
+      <button data-add="consequence"><span class="shape-ico" id="ico-consequence"></span>Consequence</button>
+    </div>
+
+    <div class="group">
+      <h2>Build Paths</h2>
+      <button id="btnConnect">🔗 Connect nodes (path)</button>
+      <button id="btnRootPaths">🌿 Find root paths</button>
+      <button id="btnClearFocus">👁 Clear focus / show all</button>
+    </div>
+
+    <div class="group">
+      <h2>Selected Node</h2>
+      <button id="btnToggle" disabled>⏻ Disable / enable node</button>
+      <button id="btnFocus" disabled>🔍 Zoom into this chain</button>
+      <button class="danger" id="btnDelete" disabled>✕ Delete node</button>
+    </div>
+
+    <div class="group">
+      <h2>Legend</h2>
+      <div class="legend-row"><span class="shape-ico" id="lg-entry"></span>Entry Vector (hexagon)</div>
+      <div class="legend-row"><span class="shape-ico" id="lg-finding"></span>Finding (rectangle)</div>
+      <div class="legend-row"><span class="shape-ico" id="lg-artifact"></span>Artifact / Capability (diamond)</div>
+      <div class="legend-row"><span class="shape-ico" id="lg-consequence"></span>Consequence (octagon)</div>
+    </div>
+
+    <div class="group">
+      <h2>How to use</h2>
+      <div class="hint">
+        <b>Add</b> nodes, <b>drag</b> to arrange.<br>
+        <b>Connect</b>: click the tool, then click source then target to draw a directed path.<br>
+        <b>Double-click</b> a node to rename.<br>
+        <b>Disable</b> a node to model a mitigation and see which paths break.<br>
+        Scroll to zoom, drag empty space to pan. <kbd>Del</kbd> removes selection.
+      </div>
+    </div>
+  </aside>
+
+  <!-- CANVAS -->
+  <main>
+    <div class="connect-banner" id="connectBanner">Connect mode — click a <b>source</b> node…</div>
+    <svg id="canvas">
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#6b7280"/>
+        </marker>
+        <marker id="arrow-hl" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="#2e9e5b"/>
+        </marker>
+      </defs>
+      <g id="viewport">
+        <g id="edgeLayer"></g>
+        <g id="nodeLayer"></g>
+      </g>
+    </svg>
+    <div class="zoom-controls">
+      <button id="zoomIn">+</button>
+      <button id="zoomOut">−</button>
+      <button id="zoomFit" title="Fit to view">⤢</button>
+    </div>
+  </main>
+
+  <!-- RIGHT PANEL -->
+  <aside class="right">
+    <div class="group">
+      <h2>Analysis</h2>
+      <div class="stat green"><span class="num" id="statConseq">0</span><span class="lbl">consequences reachable from an entry vector</span></div>
+      <div class="stat"><span class="num" id="statPaths">0</span><span class="lbl">complete attack paths available (entry → consequence)</span></div>
+      <div class="stat gray"><span class="num" id="statDisabled">0</span><span class="lbl">nodes disabled (mitigated)</span></div>
+      <div class="stat gray"><span class="num" id="statNodes">0</span><span class="lbl">total nodes / edges</span></div>
+    </div>
+
+    <div class="group" id="propGroup" style="display:none">
+      <h2>Edit Node</h2>
+      <div class="field"><label>Label</label><input id="propLabel" type="text"></div>
+      <div class="field"><label>Type</label>
+        <select id="propType">
+          <option value="entry">Entry Vector</option>
+          <option value="finding">Finding</option>
+          <option value="artifact">Artifact / Capability</option>
+          <option value="consequence">Consequence</option>
+        </select>
+      </div>
+      <div class="field"><label>MITRE technique / notes</label><textarea id="propNote" placeholder="e.g. T1190 Exploit Public-Facing Application"></textarea></div>
+    </div>
+
+    <div class="group">
+      <h2>Attack Paths <span id="pathCount" style="color:var(--gray);font-weight:400"></span></h2>
+      <div class="pathlist" id="pathList"><div class="empty">Click “Find root paths” to enumerate every entry-to-consequence chain.</div></div>
+    </div>
+  </aside>
+</div>
+
+<script>
+"use strict";
+
+/* ---------- node type definitions ---------- */
+const TYPES = {
+  entry:       {label:"Entry Vector", shape:"hexagon",  fill:"#14264f", stroke:"#0d1b3e", text:"#ffffff"},
+  finding:     {label:"Finding",      shape:"rect",     fill:"#e5e7eb", stroke:"#6b7280", text:"#0d1b3e"},
+  artifact:    {label:"Capability",   shape:"diamond",  fill:"#2e9e5b", stroke:"#1f7a44", text:"#ffffff"},
+  consequence: {label:"Consequence",  shape:"octagon",  fill:"#0d1b3e", stroke:"#2e9e5b", text:"#ffffff"},
+};
+const NW = 168, NH = 74; // node bounding box
+
+/* ---------- state ---------- */
+let state = { nodes:[], edges:[] };
+let selected = null;          // node id
+let mode = "select";          // select | connect
+let connectSource = null;
+let focusChain = null;        // Set of node ids to show, or null
+let highlightEdges = new Set();// edge ids highlighted (path focus)
+let view = { x:0, y:0, k:1 };
+let idc = 1;
+const uid = p => p + (idc++) + "-" + Math.random().toString(36).slice(2,6);
+
+/* ---------- DOM ---------- */
+const svg = document.getElementById("canvas");
+const viewport = document.getElementById("viewport");
+const nodeLayer = document.getElementById("nodeLayer");
+const edgeLayer = document.getElementById("edgeLayer");
+
+/* ---------- shape geometry ---------- */
+function shapePoints(shape){
+  const hw = NW/2, hh = NH/2, c = 18;
+  switch(shape){
+    case "hexagon":
+      return `${-hw+c},${-hh} ${hw-c},${-hh} ${hw},0 ${hw-c},${hh} ${-hw+c},${hh} ${-hw},0`;
+    case "diamond":
+      return `0,${-hh-6} ${hw+14},0 0,${hh+6} ${-hw-14},0`;
+    case "octagon":
+      return `${-hw+c},${-hh} ${hw-c},${-hh} ${hw},${-hh+c} ${hw},${hh-c} ${hw-c},${hh} ${-hw+c},${hh} ${-hw},${hh-c} ${-hw},${-hh+c}`;
+    default: return null; // rect handled separately
+  }
+}
+
+/* small legend/toolbar icons */
+function iconSVG(type){
+  const t = TYPES[type];
+  const pts = shapePoints(t.shape);
+  const inner = t.shape==="rect"
+    ? `<rect x="1.5" y="4" width="15" height="10" rx="1.5" fill="${t.fill}" stroke="${t.stroke}" stroke-width="1.5"/>`
+    : `<polygon points="${pts.split(" ").map(p=>{const[a,b]=p.split(",");return (Number(a)/11+9)+","+(Number(b)/11+9);}).join(" ")}" fill="${t.fill}" stroke="${t.stroke}" stroke-width="1.5"/>`;
+  return `<svg viewBox="0 0 18 18" width="18" height="18">${inner}</svg>`;
+}
+["entry","finding","artifact","consequence"].forEach(t=>{
+  const html = iconSVG(t);
+  ["ico-","lg-"].forEach(p=>{ const el=document.getElementById(p+t); if(el) el.innerHTML=html; });
+});
+
+/* ---------- coordinate helpers ---------- */
+function screenToWorld(sx, sy){
+  const r = svg.getBoundingClientRect();
+  return { x:(sx - r.left - view.x)/view.k, y:(sy - r.top - view.y)/view.k };
+}
+function applyView(){ viewport.setAttribute("transform", `translate(${view.x},${view.y}) scale(${view.k})`); }
+
+/* ---------- rendering ---------- */
+function render(){
+  renderEdges();
+  renderNodes();
+  updateStats();
+  applyView();
+}
+
+function nodeById(id){ return state.nodes.find(n=>n.id===id); }
+
+function renderNodes(){
+  nodeLayer.innerHTML = "";
+  for(const n of state.nodes){
+    const t = TYPES[n.type];
+    const g = document.createElementNS("http://www.w3.org/2000/svg","g");
+    g.setAttribute("class","node"+(n.id===selected?" selected":"")+(n.enabled===false?" disabled":"")+
+      (focusChain && !focusChain.has(n.id)?" dim":""));
+    g.setAttribute("transform",`translate(${n.x},${n.y})`);
+    g.dataset.id = n.id;
+
+    let shapeEl;
+    if(t.shape==="rect"){
+      shapeEl = document.createElementNS("http://www.w3.org/2000/svg","rect");
+      shapeEl.setAttribute("x",-NW/2); shapeEl.setAttribute("y",-NH/2);
+      shapeEl.setAttribute("width",NW); shapeEl.setAttribute("height",NH);
+      shapeEl.setAttribute("rx",6);
+    } else {
+      shapeEl = document.createElementNS("http://www.w3.org/2000/svg","polygon");
+      shapeEl.setAttribute("points",shapePoints(t.shape));
+    }
+    shapeEl.setAttribute("class","node-shape");
+    shapeEl.setAttribute("fill",t.fill);
+    shapeEl.setAttribute("stroke",t.stroke);
+    g.appendChild(shapeEl);
+
+    // type label (top)
+    const tl = document.createElementNS("http://www.w3.org/2000/svg","text");
+    tl.setAttribute("class","node-type-label"); tl.setAttribute("text-anchor","middle");
+    tl.setAttribute("y",-NH/2+15); tl.setAttribute("fill",t.text);
+    tl.setAttribute("opacity",".7");
+    tl.textContent = t.label;
+    g.appendChild(tl);
+
+    // main label (wrapped)
+    const lines = wrap(n.label || "(unnamed)", 20).slice(0,3);
+    const lbl = document.createElementNS("http://www.w3.org/2000/svg","text");
+    lbl.setAttribute("class","node-label"); lbl.setAttribute("text-anchor","middle");
+    lbl.setAttribute("fill",t.text);
+    const startY = 4 - (lines.length-1)*7;
+    lines.forEach((ln,i)=>{
+      const ts = document.createElementNS("http://www.w3.org/2000/svg","tspan");
+      ts.setAttribute("x",0); ts.setAttribute("y",startY + i*14);
+      ts.textContent = ln;
+      lbl.appendChild(ts);
+    });
+    g.appendChild(lbl);
+
+    nodeLayer.appendChild(g);
+  }
+}
+
+function wrap(str, max){
+  const words = String(str).split(/\s+/), lines=[]; let cur="";
+  for(const w of words){
+    if((cur+" "+w).trim().length > max){ if(cur) lines.push(cur); cur=w; }
+    else cur=(cur+" "+w).trim();
+  }
+  if(cur) lines.push(cur);
+  return lines.length?lines:[""];
+}
+
+/* boundary point of node box toward a target point */
+function boundary(n, tx, ty){
+  const dx = tx - n.x, dy = ty - n.y;
+  const hw = NW/2 + (TYPES[n.type].shape==="diamond"?14:0);
+  const hh = NH/2 + (TYPES[n.type].shape==="diamond"?6:0);
+  if(dx===0 && dy===0) return {x:n.x, y:n.y};
+  const sx = dx===0?Infinity:hw/Math.abs(dx);
+  const sy = dy===0?Infinity:hh/Math.abs(dy);
+  const s = Math.min(sx,sy);
+  return { x:n.x + dx*s, y:n.y + dy*s };
+}
+
+function renderEdges(){
+  edgeLayer.innerHTML = "";
+  for(const e of state.edges){
+    const a = nodeById(e.from), b = nodeById(e.to);
+    if(!a||!b) continue;
+    const p1 = boundary(a, b.x, b.y);
+    const p2 = boundary(b, a.x, a.y);
+    const dim = focusChain && (!focusChain.has(a.id) || !focusChain.has(b.id));
+    const hl = highlightEdges.has(e.id);
+
+    const hit = line(p1,p2,"edge-hit");
+    hit.dataset.edge = e.id;
+    hit.addEventListener("click",ev=>{ ev.stopPropagation(); if(confirm("Delete this path?")) deleteEdge(e.id); });
+    edgeLayer.appendChild(hit);
+
+    const ln = line(p1,p2,"edge"+(hl?" hl":"")+(dim?" dim":""));
+    ln.setAttribute("marker-end", hl?"url(#arrow-hl)":"url(#arrow)");
+    edgeLayer.appendChild(ln);
+
+    if(e.label){
+      const t = document.createElementNS("http://www.w3.org/2000/svg","text");
+      t.setAttribute("class","edge-label"+(dim?" dim":""));
+      t.setAttribute("text-anchor","middle");
+      t.setAttribute("x",(p1.x+p2.x)/2); t.setAttribute("y",(p1.y+p2.y)/2-4);
+      t.textContent = e.label;
+      edgeLayer.appendChild(t);
+    }
+  }
+}
+function line(p1,p2,cls){
+  const l = document.createElementNS("http://www.w3.org/2000/svg","line");
+  l.setAttribute("x1",p1.x); l.setAttribute("y1",p1.y);
+  l.setAttribute("x2",p2.x); l.setAttribute("y2",p2.y);
+  l.setAttribute("class",cls);
+  return l;
+}
+
+/* ---------- CRUD ---------- */
+function addNode(type, x, y){
+  const n = { id:uid("n"), type, label:TYPES[type].label, x, y, enabled:true, note:"" };
+  state.nodes.push(n);
+  select(n.id);
+  render();
+  return n;
+}
+function deleteNode(id){
+  state.nodes = state.nodes.filter(n=>n.id!==id);
+  state.edges = state.edges.filter(e=>e.from!==id && e.to!==id);
+  if(selected===id) select(null);
+  focusChain=null; highlightEdges.clear();
+  render();
+}
+function deleteEdge(id){ state.edges = state.edges.filter(e=>e.id!==id); render(); }
+function addEdge(from, to){
+  if(from===to) return;
+  if(state.edges.some(e=>e.from===from && e.to===to)) return;
+  state.edges.push({ id:uid("e"), from, to, label:"" });
+  render();
+}
+
+/* ---------- selection & props ---------- */
+function select(id){
+  selected = id;
+  const has = !!id;
+  document.getElementById("btnDelete").disabled = !has;
+  document.getElementById("btnToggle").disabled = !has;
+  document.getElementById("btnFocus").disabled = !has;
+  const pg = document.getElementById("propGroup");
+  if(has){
+    const n = nodeById(id);
+    pg.style.display="block";
+    document.getElementById("propLabel").value = n.label;
+    document.getElementById("propType").value = n.type;
+    document.getElementById("propNote").value = n.note||"";
+  } else pg.style.display="none";
+  render();
+}
+document.getElementById("propLabel").addEventListener("input",e=>{ if(selected){ nodeById(selected).label=e.target.value; render(); }});
+document.getElementById("propType").addEventListener("change",e=>{ if(selected){ nodeById(selected).type=e.target.value; render(); }});
+document.getElementById("propNote").addEventListener("input",e=>{ if(selected){ nodeById(selected).note=e.target.value; }});
+
+/* ---------- graph analysis ---------- */
+function activeAdj(){
+  // adjacency over enabled nodes/edges only
+  const on = new Set(state.nodes.filter(n=>n.enabled!==false).map(n=>n.id));
+  const adj = new Map(); on.forEach(id=>adj.set(id,[]));
+  for(const e of state.edges){ if(on.has(e.from)&&on.has(e.to)) adj.get(e.from).push(e.to); }
+  return { on, adj };
+}
+function enumeratePaths(){
+  // all simple paths from any entry to any consequence, enabled only
+  const {on, adj} = activeAdj();
+  const entries = state.nodes.filter(n=>n.type==="entry" && on.has(n.id)).map(n=>n.id);
+  const isConseq = id => nodeById(id).type==="consequence";
+  const paths = [];
+  const LIMIT = 3000;
+  for(const start of entries){
+    const stack=[[start]];
+    dfs(start,[start]);
+    function dfs(node, path){
+      if(paths.length>=LIMIT) return;
+      if(isConseq(node) && path.length>1){ paths.push(path.slice()); }
+      for(const nx of (adj.get(node)||[])){
+        if(path.includes(nx)) continue; // simple path, no cycles
+        path.push(nx); dfs(nx,path); path.pop();
+        if(paths.length>=LIMIT) return;
+      }
+    }
+  }
+  return paths;
+}
+function reachableConsequences(){
+  const {on, adj} = activeAdj();
+  const entries = state.nodes.filter(n=>n.type==="entry" && on.has(n.id)).map(n=>n.id);
+  const seen = new Set(entries), q=[...entries];
+  while(q.length){ const c=q.shift(); for(const nx of (adj.get(c)||[])) if(!seen.has(nx)){ seen.add(nx); q.push(nx);} }
+  return state.nodes.filter(n=>n.type==="consequence" && seen.has(n.id));
+}
+
+function updateStats(){
+  const disabled = state.nodes.filter(n=>n.enabled===false).length;
+  document.getElementById("statConseq").textContent = reachableConsequences().length;
+  document.getElementById("statPaths").textContent = enumeratePaths().length;
+  document.getElementById("statDisabled").textContent = disabled;
+  document.getElementById("statNodes").textContent = state.nodes.length + " / " + state.edges.length;
+}
+
+/* ---------- root path listing ---------- */
+let lastPaths = [];
+function findRootPaths(){
+  lastPaths = enumeratePaths();
+  const list = document.getElementById("pathList");
+  document.getElementById("pathCount").textContent = lastPaths.length ? "("+lastPaths.length+")" : "";
+  if(!lastPaths.length){ list.innerHTML='<div class="empty">No complete entry→consequence paths found. Add an Entry Vector, a Consequence, and connect them.</div>'; return; }
+  list.innerHTML = "";
+  lastPaths.forEach((p,i)=>{
+    const div = document.createElement("div");
+    div.className="path-item";
+    const chain = p.map(id=>{ const n=nodeById(id); return `<span class="chain" style="border-bottom:2px solid ${TYPES[n.type].stroke}">${escapeHtml(n.label)}</span>`; }).join('<span class="arrow">▸</span>');
+    div.innerHTML = `<span class="idx">#${i+1}</span>${chain}`;
+    div.addEventListener("click",()=>focusPath(i, div));
+    list.appendChild(div);
+  });
+}
+function focusPath(i, el){
+  document.querySelectorAll(".path-item").forEach(e=>e.classList.remove("active"));
+  if(el) el.classList.add("active");
+  const p = lastPaths[i];
+  focusChain = new Set(p);
+  highlightEdges = new Set();
+  for(let j=0;j<p.length-1;j++){
+    const e = state.edges.find(ed=>ed.from===p[j] && ed.to===p[j+1]);
+    if(e) highlightEdges.add(e.id);
+  }
+  render();
+}
+function escapeHtml(s){ return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+
+/* ---------- focus a node's whole chain (ancestors + descendants) ---------- */
+function focusNodeChain(id){
+  const up = new Set(), down = new Set();
+  const preds = new Map(), succs = new Map();
+  state.nodes.forEach(n=>{ preds.set(n.id,[]); succs.set(n.id,[]); });
+  state.edges.forEach(e=>{ succs.get(e.from)?.push(e.to); preds.get(e.to)?.push(e.from); });
+  (function walk(x,map,set){ for(const y of map.get(x)||[]) if(!set.has(y)){ set.add(y); walk(y,map,set);} })(id,succs,down);
+  (function walk(x,map,set){ for(const y of map.get(x)||[]) if(!set.has(y)){ set.add(y); walk(y,map,set);} })(id,preds,up);
+  focusChain = new Set([id,...up,...down]);
+  highlightEdges = new Set();
+  state.edges.forEach(e=>{ if(focusChain.has(e.from)&&focusChain.has(e.to)) highlightEdges.add(e.id); });
+  render();
+}
+function clearFocus(){
+  focusChain=null; highlightEdges.clear();
+  document.querySelectorAll(".path-item").forEach(e=>e.classList.remove("active"));
+  render();
+}
+
+/* ---------- pointer interaction ---------- */
+let drag=null, panning=null;
+svg.addEventListener("pointerdown",e=>{
+  const g = e.target.closest(".node");
+  if(g){
+    const id = g.dataset.id;
+    if(mode==="connect"){ handleConnectClick(id); return; }
+    select(id);
+    const w = screenToWorld(e.clientX,e.clientY);
+    const n = nodeById(id);
+    drag = { id, dx:w.x-n.x, dy:w.y-n.y, moved:false };
+    svg.setPointerCapture(e.pointerId);
+  } else {
+    if(mode==="connect"){ return; }
+    select(null);
+    panning = { sx:e.clientX, sy:e.clientY, vx:view.x, vy:view.y };
+    svg.classList.add("grabbing");
+    svg.setPointerCapture(e.pointerId);
+  }
+});
+svg.addEventListener("pointermove",e=>{
+  if(drag){
+    const w = screenToWorld(e.clientX,e.clientY);
+    const n = nodeById(drag.id);
+    n.x = w.x-drag.dx; n.y = w.y-drag.dy; drag.moved=true;
+    render();
+  } else if(panning){
+    view.x = panning.vx + (e.clientX-panning.sx);
+    view.y = panning.vy + (e.clientY-panning.sy);
+    applyView();
+  }
+});
+svg.addEventListener("pointerup",e=>{ drag=null; panning=null; svg.classList.remove("grabbing"); });
+
+svg.addEventListener("dblclick",e=>{
+  const g = e.target.closest(".node");
+  if(g){
+    const n = nodeById(g.dataset.id);
+    const v = prompt("Node label:", n.label);
+    if(v!==null){ n.label=v.trim(); select(n.id); render(); }
+  }
+});
+
+/* zoom with wheel */
+svg.addEventListener("wheel",e=>{
+  e.preventDefault();
+  const r = svg.getBoundingClientRect();
+  const mx = e.clientX-r.left, my = e.clientY-r.top;
+  const factor = e.deltaY<0 ? 1.12 : 1/1.12;
+  const nk = Math.min(2.5, Math.max(0.25, view.k*factor));
+  view.x = mx - (mx-view.x)*(nk/view.k);
+  view.y = my - (my-view.y)*(nk/view.k);
+  view.k = nk; applyView();
+},{passive:false});
+
+/* ---------- connect mode ---------- */
+function setMode(m){
+  mode = m;
+  connectSource=null;
+  const b = document.getElementById("btnConnect");
+  const banner = document.getElementById("connectBanner");
+  if(m==="connect"){ b.classList.add("active"); svg.classList.add("connect"); banner.classList.add("show"); banner.innerHTML="Connect mode — click a <b>source</b> node…"; }
+  else { b.classList.remove("active"); svg.classList.remove("connect"); banner.classList.remove("show"); }
+}
+function handleConnectClick(id){
+  const banner = document.getElementById("connectBanner");
+  if(!connectSource){ connectSource=id; select(id); banner.innerHTML="Source set — click a <b>target</b> node…"; }
+  else { addEdge(connectSource,id); connectSource=null; banner.innerHTML="Path added ✓ — click next <b>source</b> node…"; }
+}
+
+/* ---------- toolbar wiring ---------- */
+document.querySelectorAll("[data-add]").forEach(b=>{
+  b.addEventListener("click",()=>{
+    const c = screenToWorld(svg.getBoundingClientRect().width/2, svg.getBoundingClientRect().height/2);
+    addNode(b.dataset.add, c.x + (Math.random()*80-40), c.y + (Math.random()*80-40));
+  });
+});
+document.getElementById("btnConnect").addEventListener("click",()=> setMode(mode==="connect"?"select":"connect"));
+document.getElementById("btnRootPaths").addEventListener("click",findRootPaths);
+document.getElementById("btnClearFocus").addEventListener("click",clearFocus);
+document.getElementById("btnDelete").addEventListener("click",()=>{ if(selected && confirm("Delete this node and its paths?")) deleteNode(selected); });
+document.getElementById("btnToggle").addEventListener("click",()=>{ if(selected){ const n=nodeById(selected); n.enabled = n.enabled===false; render(); }});
+document.getElementById("btnFocus").addEventListener("click",()=>{ if(selected) focusNodeChain(selected); });
+
+document.addEventListener("keydown",e=>{
+  if(e.target.matches("input,textarea,select")) return;
+  if((e.key==="Delete"||e.key==="Backspace") && selected){ e.preventDefault(); deleteNode(selected); }
+  if(e.key==="Escape"){ if(mode==="connect") setMode("select"); clearFocus(); select(null); }
+});
+
+/* zoom buttons */
+document.getElementById("zoomIn").addEventListener("click",()=>zoomBtn(1.2));
+document.getElementById("zoomOut").addEventListener("click",()=>zoomBtn(1/1.2));
+function zoomBtn(f){
+  const r=svg.getBoundingClientRect(), mx=r.width/2, my=r.height/2;
+  const nk=Math.min(2.5,Math.max(0.25,view.k*f));
+  view.x = mx-(mx-view.x)*(nk/view.k); view.y = my-(my-view.y)*(nk/view.k); view.k=nk; applyView();
+}
+document.getElementById("zoomFit").addEventListener("click",fitView);
+function fitView(){
+  if(!state.nodes.length){ view={x:svg.getBoundingClientRect().width/2,y:svg.getBoundingClientRect().height/2,k:1}; applyView(); return; }
+  const xs=state.nodes.map(n=>n.x), ys=state.nodes.map(n=>n.y);
+  const minx=Math.min(...xs)-NW, maxx=Math.max(...xs)+NW, miny=Math.min(...ys)-NH, maxy=Math.max(...ys)+NH;
+  const r=svg.getBoundingClientRect();
+  const k=Math.min(2.5, Math.min(r.width/(maxx-minx), r.height/(maxy-miny)));
+  view.k=Math.max(.25,k);
+  view.x = (r.width - (minx+maxx)*view.k)/2;
+  view.y = (r.height - (miny+maxy)*view.k)/2;
+  applyView();
+}
+
+/* ---------- save / load / export ---------- */
+document.getElementById("btnSave").addEventListener("click",()=>{
+  const data = JSON.stringify({version:1, ...state}, null, 2);
+  download(data, "attack-map.json", "application/json");
+});
+document.getElementById("btnLoad").addEventListener("click",()=>document.getElementById("fileInput").click());
+document.getElementById("fileInput").addEventListener("change",e=>{
+  const f=e.target.files[0]; if(!f) return;
+  const rd=new FileReader();
+  rd.onload=()=>{ try{ const d=JSON.parse(rd.result); state={nodes:d.nodes||[], edges:d.edges||[]}; selected=null; clearFocus(); select(null); fitView(); render(); document.getElementById("pathList").innerHTML='<div class="empty">Loaded. Click “Find root paths”.</div>'; }catch(err){ alert("Invalid file: "+err.message);} };
+  rd.readAsText(f); e.target.value="";
+});
+document.getElementById("btnPng").addEventListener("click",()=>{
+  const clone = svg.cloneNode(true);
+  clone.setAttribute("xmlns","http://www.w3.org/2000/svg");
+  const s = new XMLSerializer().serializeToString(clone);
+  download(s, "attack-map.svg", "image/svg+xml");
+});
+function download(data, name, type){
+  const blob=new Blob([data],{type}); const url=URL.createObjectURL(blob);
+  const a=document.createElement("a"); a.href=url; a.download=name; a.click(); URL.revokeObjectURL(url);
+}
+document.getElementById("btnClear").addEventListener("click",()=>{
+  if(confirm("Clear the entire map?")){ state={nodes:[],edges:[]}; selected=null; clearFocus(); select(null); document.getElementById("pathList").innerHTML='<div class="empty">Cleared.</div>'; document.getElementById("pathCount").textContent=""; render(); }
+});
+
+/* ---------- sample model ---------- */
+document.getElementById("btnSample").addEventListener("click",loadSample);
+function loadSample(){
+  idc=1;
+  const N=(type,label,x,y,note)=>({id:uid("n"),type,label,x,y,enabled:true,note:note||""});
+  const n = {
+    phish:   N("entry","Phishing email w/ macro",60,80,"T1566.001 Spearphishing Attachment"),
+    web:     N("entry","Public web app (VPN portal)",60,300,"T1190 Exploit Public-Facing App"),
+    usb:     N("entry","Rogue USB in lab",60,520,"T1091 Replication via Removable Media"),
+    macro:   N("finding","Office macros enabled",360,80,"Config finding"),
+    cve:     N("finding","Unpatched CVE-2024-XXXX",360,300,"Missing patch"),
+    weakcred:N("finding","Reused local admin password",360,520,"T1078 Valid Accounts"),
+    foothold:N("artifact","Beacon / C2 foothold",640,180,"T1071 Application Layer Protocol"),
+    creds:   N("artifact","Dumped domain creds",640,400,"T1003 OS Credential Dumping"),
+    lateral: N("artifact","Lateral movement to DC",900,300,"T1021 Remote Services"),
+    exfil:   N("consequence","Patient data exfiltration",1180,180,"T1567 Exfil over Web Service"),
+    ransom:  N("consequence","Ransomware detonation",1180,420,"T1486 Data Encrypted for Impact"),
+  };
+  state.nodes = Object.values(n);
+  const E=(a,b)=>({id:uid("e"),from:a.id,to:b.id,label:""});
+  state.edges = [
+    E(n.phish,n.macro), E(n.web,n.cve), E(n.usb,n.weakcred),
+    E(n.macro,n.foothold), E(n.cve,n.foothold), E(n.weakcred,n.creds),
+    E(n.foothold,n.creds), E(n.creds,n.lateral),
+    E(n.lateral,n.exfil), E(n.lateral,n.ransom), E(n.foothold,n.ransom),
+  ];
+  selected=null; clearFocus(); select(null); render(); fitView(); findRootPaths();
+}
+
+/* ---------- boot ---------- */
+view = {x:0,y:0,k:1};
+render();
+fitView();
+</script>
+</body>
+</html>
