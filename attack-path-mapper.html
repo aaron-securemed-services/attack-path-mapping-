@@ -95,6 +95,36 @@
   .zoom-controls{position:absolute;bottom:14px;right:14px;display:flex;flex-direction:column;gap:6px;z-index:4;}
   .zoom-controls button{width:36px;height:36px;justify-content:center;padding:0;font-size:18px;box-shadow:var(--shadow);margin:0;}
   input[type=file]{display:none;}
+
+  /* header model name + saved indicator */
+  #modelName{background:var(--navy-2);border:1px solid var(--navy-3);color:#fff;border-radius:6px;font-size:13px;padding:6px 9px;width:190px;font-family:inherit;}
+  #modelName::placeholder{color:var(--gray-l);}
+  #savedTag{font-size:11px;color:var(--green);opacity:0;transition:opacity .3s;min-width:74px;}
+  #savedTag.show{opacity:1;}
+
+  /* dropdown menus */
+  .menu{position:relative;display:inline-block;}
+  .menu>button{width:auto;margin:0;}
+  .menu-panel{position:absolute;top:112%;right:0;background:#fff;border:1px solid var(--line);border-radius:8px;box-shadow:0 6px 20px rgba(13,27,62,.22);min-width:210px;padding:6px;display:none;z-index:30;}
+  .menu.open .menu-panel{display:block;}
+  .menu-panel button{color:var(--navy);font-size:13px;justify-content:flex-start;}
+  .menu-sep{height:1px;background:var(--gray-xl);margin:5px 2px;}
+  .menu-head{font-size:10px;text-transform:uppercase;letter-spacing:.6px;color:var(--gray);padding:4px 8px 2px;font-weight:700;}
+  button.report{background:var(--green);color:#fff;border-color:var(--green);width:auto;margin:0;}
+  button.report:hover{background:var(--green-d);}
+
+  /* secondary stats grid */
+  .mini-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:11px;}
+  .mini{background:#f4f6fa;border:1px solid var(--gray-xl);border-radius:6px;padding:6px 9px;}
+  .mini .v{font-size:17px;font-weight:800;color:var(--navy);line-height:1.1;}
+  .mini .k{font-size:10px;color:var(--gray);line-height:1.25;margin-top:2px;}
+  .mini.warn{background:#fff6ec;border-color:#f0d5b0;}
+  .mini.warn .v{color:#b0620f;}
+  .mini.crit{background:#fdeeee;border-color:#f0c5c5;}
+  .mini.crit .v{color:#b03030;}
+
+  /* choke point highlight on canvas */
+  .node.choke .node-shape{stroke:#e0891e;stroke-width:4.5;stroke-dasharray:none;}
 </style>
 </head>
 <body>
@@ -102,10 +132,39 @@
   <header>
     <h1>⛓ Attack Path Mapper</h1>
     <span class="sub">manual attack-path modeling for lab systems &nbsp;·&nbsp; entry vector → finding → capability → consequence</span>
+    <input id="modelName" type="text" placeholder="Untitled model" title="Model name (used in reports and file names)">
+    <span id="savedTag">Autosaved ✓</span>
     <span class="spacer"></span>
-    <button style="width:auto" id="btnSave">💾 Save</button>
-    <button style="width:auto" id="btnLoad">📂 Load</button>
-    <button style="width:auto" id="btnPng">🖼 Export SVG</button>
+
+    <div class="menu" id="menuSave">
+      <button>💾 Save / Load ▾</button>
+      <div class="menu-panel">
+        <div class="menu-head">File</div>
+        <button data-act="save-file">💾 Save to file (.json)</button>
+        <button data-act="load-file">📂 Load from file…</button>
+        <div class="menu-sep"></div>
+        <div class="menu-head">This browser</div>
+        <button data-act="save-ls">🌐 Save to browser</button>
+        <button data-act="restore-ls">↩ Restore from browser</button>
+      </div>
+    </div>
+
+    <div class="menu" id="menuExport">
+      <button>⬇ Export ▾</button>
+      <div class="menu-panel">
+        <div class="menu-head">Diagram</div>
+        <button data-act="png">🖼 PNG image</button>
+        <button data-act="svg">🔷 SVG vector</button>
+        <div class="menu-sep"></div>
+        <div class="menu-head">Data</div>
+        <button data-act="csv-paths">📃 Attack paths (CSV)</button>
+        <button data-act="csv-nodes">🧾 Node inventory (CSV)</button>
+        <button data-act="md">⬇ Markdown report (.md)</button>
+        <button data-act="json">{ } Raw data (JSON)</button>
+      </div>
+    </div>
+
+    <button class="report" id="btnReport">📄 Publish Report</button>
     <button style="width:auto" id="btnSample">✨ Sample</button>
     <button style="width:auto" class="danger" id="btnClear">🗑 Clear</button>
     <input type="file" id="fileInput" accept="application/json">
@@ -125,6 +184,7 @@
       <h2>Build Paths</h2>
       <button id="btnConnect">🔗 Connect nodes (path)</button>
       <button id="btnRootPaths">🌿 Find root paths</button>
+      <button id="btnChoke">⚠ Highlight choke points</button>
       <button id="btnClearFocus">👁 Clear focus / show all</button>
     </div>
 
@@ -186,7 +246,7 @@
       <div class="stat green"><span class="num" id="statConseq">0</span><span class="lbl">consequences reachable from an entry vector</span></div>
       <div class="stat"><span class="num" id="statPaths">0</span><span class="lbl">complete attack paths available (entry → consequence)</span></div>
       <div class="stat gray"><span class="num" id="statDisabled">0</span><span class="lbl">nodes disabled (mitigated)</span></div>
-      <div class="stat gray"><span class="num" id="statNodes">0</span><span class="lbl">total nodes / edges</span></div>
+      <div class="mini-grid" id="miniStats"></div>
     </div>
 
     <div class="group" id="propGroup" style="display:none">
@@ -223,7 +283,9 @@ const TYPES = {
 const NW = 168, NH = 74; // node bounding box
 
 /* ---------- state ---------- */
-let state = { nodes:[], edges:[] };
+let state = { meta:{name:""}, nodes:[], edges:[] };
+let interacting = false;   // true while dragging (skip heavy recompute)
+let chokeSet = new Set();  // highlighted choke-point node ids
 let selected = null;          // node id
 let mode = "select";          // select | connect
 let connectSource = null;
@@ -280,6 +342,7 @@ function render(){
   renderNodes();
   updateStats();
   applyView();
+  autosave();
 }
 
 function nodeById(id){ return state.nodes.find(n=>n.id===id); }
@@ -290,7 +353,7 @@ function renderNodes(){
     const t = TYPES[n.type];
     const g = document.createElementNS("http://www.w3.org/2000/svg","g");
     g.setAttribute("class","node"+(n.id===selected?" selected":"")+(n.enabled===false?" disabled":"")+
-      (focusChain && !focusChain.has(n.id)?" dim":""));
+      (chokeSet.has(n.id)?" choke":"")+(focusChain && !focusChain.has(n.id)?" dim":""));
     g.setAttribute("transform",`translate(${n.x},${n.y})`);
     g.dataset.id = n.id;
 
@@ -476,12 +539,67 @@ function reachableConsequences(){
   return state.nodes.filter(n=>n.type==="consequence" && seen.has(n.id));
 }
 
+/* choke points: nodes that appear in EVERY path to at least one reachable consequence */
+function computeChokePoints(paths){
+  const groups = new Map();
+  paths.forEach(p=>{ const c=p[p.length-1]; (groups.get(c)||groups.set(c,[]).get(c)).push(p); });
+  const choke = new Set();
+  for(const [c, ps] of groups){
+    let inter = null;
+    for(const p of ps){ const s=new Set(p); inter = inter===null ? s : new Set([...inter].filter(x=>s.has(x))); }
+    if(inter) for(const id of inter){ if(id!==c) choke.add(id); }
+  }
+  return choke;
+}
+
+/* central analysis used by stats panel, choke highlight, and reports */
+function analyze(){
+  const paths = enumeratePaths();
+  const reachC = reachableConsequences();
+  const reachIds = new Set(reachC.map(n=>n.id));
+  const byType = {entry:0,finding:0,artifact:0,consequence:0};
+  state.nodes.forEach(n=>{ if(byType[n.type]!==undefined) byType[n.type]++; });
+  const disabled = state.nodes.filter(n=>n.enabled===false);
+  const lens = paths.map(p=>p.length);
+  const longest = lens.length?Math.max(...lens):0;
+  const shortest = lens.length?Math.min(...lens):0;
+  const avg = lens.length?(lens.reduce((a,b)=>a+b,0)/lens.length):0;
+  const allConseq = state.nodes.filter(n=>n.type==="consequence");
+  const unreachable = allConseq.filter(n=>!reachIds.has(n.id));
+  const entriesInPaths = new Set(paths.map(p=>p[0]));
+  const deadEntries = state.nodes.filter(n=>n.type==="entry" && n.enabled!==false && !entriesInPaths.has(n.id));
+  const connected = new Set(); state.edges.forEach(e=>{ connected.add(e.from); connected.add(e.to); });
+  const orphans = state.nodes.filter(n=>!connected.has(n.id));
+  const freq = new Map();
+  paths.forEach(p=>p.forEach(id=>freq.set(id,(freq.get(id)||0)+1)));
+  const choke = computeChokePoints(paths);
+  const capped = paths.length>=3000;
+  return {paths, reachC, byType, disabled, longest, shortest, avg, unreachable, deadEntries, orphans, freq, choke, capped};
+}
+
+let lastAnalysis = null;
 function updateStats(){
-  const disabled = state.nodes.filter(n=>n.enabled===false).length;
-  document.getElementById("statConseq").textContent = reachableConsequences().length;
-  document.getElementById("statPaths").textContent = enumeratePaths().length;
-  document.getElementById("statDisabled").textContent = disabled;
-  document.getElementById("statNodes").textContent = state.nodes.length + " / " + state.edges.length;
+  if(interacting) return; // keep numbers stable while dragging; recompute on release
+  const a = analyze();
+  lastAnalysis = a;
+  document.getElementById("statConseq").textContent = a.reachC.length;
+  document.getElementById("statPaths").textContent = a.paths.length + (a.capped?"+":"");
+  document.getElementById("statDisabled").textContent = a.disabled.length;
+  const tiles = [
+    ["mini", a.byType.entry, "entry vectors"],
+    ["mini", a.byType.finding, "findings"],
+    ["mini", a.byType.artifact, "capabilities"],
+    ["mini", a.byType.consequence, "consequences"],
+    ["mini", state.edges.length, "paths / edges"],
+    ["mini", a.longest||"–", "longest chain (nodes)"],
+    ["mini", a.avg?a.avg.toFixed(1):"–", "avg chain length"],
+    [a.choke.size?"mini crit":"mini", a.choke.size, "choke points (SPOF)"],
+    [a.unreachable.length?"mini warn":"mini", a.unreachable.length, "unreachable consequences"],
+    [a.deadEntries.length?"mini warn":"mini", a.deadEntries.length, "dead-end entry vectors"],
+    [a.orphans.length?"mini warn":"mini", a.orphans.length, "orphan nodes"],
+  ];
+  document.getElementById("miniStats").innerHTML = tiles.map(([cls,v,k])=>
+    `<div class="${cls}"><div class="v">${v}</div><div class="k">${k}</div></div>`).join("");
 }
 
 /* ---------- root path listing ---------- */
@@ -545,6 +663,7 @@ svg.addEventListener("pointerdown",e=>{
     const w = screenToWorld(e.clientX,e.clientY);
     const n = nodeById(id);
     drag = { id, dx:w.x-n.x, dy:w.y-n.y, moved:false };
+    interacting = true;
     svg.setPointerCapture(e.pointerId);
   } else {
     if(mode==="connect"){ return; }
@@ -566,7 +685,7 @@ svg.addEventListener("pointermove",e=>{
     applyView();
   }
 });
-svg.addEventListener("pointerup",e=>{ drag=null; panning=null; svg.classList.remove("grabbing"); });
+svg.addEventListener("pointerup",e=>{ const wasDrag=interacting; drag=null; panning=null; interacting=false; svg.classList.remove("grabbing"); if(wasDrag) render(); });
 
 svg.addEventListener("dblclick",e=>{
   const g = e.target.closest(".node");
@@ -645,30 +764,272 @@ function fitView(){
   applyView();
 }
 
-/* ---------- save / load / export ---------- */
-document.getElementById("btnSave").addEventListener("click",()=>{
-  const data = JSON.stringify({version:1, ...state}, null, 2);
-  download(data, "attack-map.json", "application/json");
-});
-document.getElementById("btnLoad").addEventListener("click",()=>document.getElementById("fileInput").click());
-document.getElementById("fileInput").addEventListener("change",e=>{
-  const f=e.target.files[0]; if(!f) return;
-  const rd=new FileReader();
-  rd.onload=()=>{ try{ const d=JSON.parse(rd.result); state={nodes:d.nodes||[], edges:d.edges||[]}; selected=null; clearFocus(); select(null); fitView(); render(); document.getElementById("pathList").innerHTML='<div class="empty">Loaded. Click “Find root paths”.</div>'; }catch(err){ alert("Invalid file: "+err.message);} };
-  rd.readAsText(f); e.target.value="";
-});
-document.getElementById("btnPng").addEventListener("click",()=>{
-  const clone = svg.cloneNode(true);
-  clone.setAttribute("xmlns","http://www.w3.org/2000/svg");
-  const s = new XMLSerializer().serializeToString(clone);
-  download(s, "attack-map.svg", "image/svg+xml");
-});
+/* ---------- helpers ---------- */
 function download(data, name, type){
   const blob=new Blob([data],{type}); const url=URL.createObjectURL(blob);
   const a=document.createElement("a"); a.href=url; a.download=name; a.click(); URL.revokeObjectURL(url);
 }
+function slug(){ return (state.meta.name||"attack-map").trim().replace(/[^a-z0-9]+/gi,"-").replace(/^-|-$/g,"").toLowerCase()||"attack-map"; }
+function stamp(){ return new Date().toISOString().slice(0,10); }
+function csvCell(v){ v=String(v==null?"":v); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; }
+
+/* ---------- model name ---------- */
+const modelNameEl = document.getElementById("modelName");
+modelNameEl.addEventListener("input",e=>{ state.meta.name=e.target.value; autosave(); });
+
+/* ---------- autosave to localStorage ---------- */
+const LSKEY="apm.autosave.v1";
+let saveTimer=null;
+function autosave(){
+  clearTimeout(saveTimer);
+  saveTimer=setTimeout(()=>{
+    try{ localStorage.setItem(LSKEY, JSON.stringify({version:1, meta:state.meta, nodes:state.nodes, edges:state.edges})); flashSaved(); }catch(err){}
+  }, 500);
+}
+function flashSaved(){ const t=document.getElementById("savedTag"); t.classList.add("show"); clearTimeout(flashSaved._t); flashSaved._t=setTimeout(()=>t.classList.remove("show"),1200); }
+function saveToBrowser(){ try{ localStorage.setItem(LSKEY, JSON.stringify({version:1, meta:state.meta, nodes:state.nodes, edges:state.edges})); flashSaved(); alert("Saved to this browser."); }catch(err){ alert("Could not save: "+err.message); } }
+function restoreFromBrowser(){
+  const raw=localStorage.getItem(LSKEY);
+  if(!raw){ alert("Nothing saved in this browser yet."); return; }
+  try{ loadData(JSON.parse(raw)); }catch(err){ alert("Saved data is corrupt: "+err.message); }
+}
+
+/* ---------- load a data object ---------- */
+function loadData(d){
+  state = { meta:d.meta||{name:d.name||""}, nodes:d.nodes||[], edges:d.edges||[] };
+  state.nodes.forEach(n=>{ if(n.enabled===undefined) n.enabled=true; if(n.note===undefined) n.note=""; });
+  selected=null; chokeSet=new Set(); clearFocus(); select(null);
+  modelNameEl.value = state.meta.name||"";
+  render(); fitView();
+  document.getElementById("pathList").innerHTML='<div class="empty">Loaded. Click “Find root paths”.</div>';
+  document.getElementById("pathCount").textContent="";
+}
+
+/* ---------- file save / load ---------- */
+function saveFile(){ download(JSON.stringify({version:1, meta:state.meta, nodes:state.nodes, edges:state.edges}, null, 2), slug()+".json", "application/json"); }
+document.getElementById("fileInput").addEventListener("change",e=>{
+  const f=e.target.files[0]; if(!f) return;
+  const rd=new FileReader();
+  rd.onload=()=>{ try{ loadData(JSON.parse(rd.result)); }catch(err){ alert("Invalid file: "+err.message);} };
+  rd.readAsText(f); e.target.value="";
+});
+
+/* ---------- standalone / fitted SVG (for SVG, PNG, and report) ---------- */
+function buildStandaloneSVG(){
+  const clone = svg.cloneNode(true);
+  clone.setAttribute("xmlns","http://www.w3.org/2000/svg");
+  let w=800, h=600, minx=0, miny=0;
+  if(state.nodes.length){
+    const xs=state.nodes.map(n=>n.x), ys=state.nodes.map(n=>n.y), pad=64;
+    minx=Math.min(...xs)-NW/2-pad; const maxx=Math.max(...xs)+NW/2+pad+18;
+    miny=Math.min(...ys)-NH/2-pad; const maxy=Math.max(...ys)+NH/2+pad;
+    w=Math.max(200,maxx-minx); h=Math.max(200,maxy-miny);
+  }
+  clone.setAttribute("viewBox",`${minx} ${miny} ${w} ${h}`);
+  clone.setAttribute("width",w); clone.setAttribute("height",h);
+  const vp = clone.querySelector("#viewport"); if(vp) vp.removeAttribute("transform");
+  clone.querySelectorAll(".node").forEach(g=>{
+    const cls=g.getAttribute("class")||"";
+    g.setAttribute("class", cls.replace(/\bselected\b|\bdim\b/g,"").trim().replace(/\s+/g," "));
+  });
+  clone.querySelectorAll(".edge").forEach(l=>l.setAttribute("class", (l.getAttribute("class")||"").replace(/\bdim\b/g,"").trim()));
+  clone.querySelectorAll(".edge-hit").forEach(l=>l.remove());
+  // inline the styles the shapes rely on
+  const style=document.createElementNS("http://www.w3.org/2000/svg","style");
+  style.textContent=`.node-shape{stroke-width:2.5}.node.disabled{opacity:.4}.node.disabled .node-shape{stroke-dasharray:5 4}.node.choke .node-shape{stroke:#e0891e;stroke-width:4.5}.node-label{font:600 12px sans-serif}.node-type-label{font:700 9px sans-serif;letter-spacing:.5px}.edge{stroke:#6b7280;stroke-width:2;fill:none}.edge.hl{stroke:#2e9e5b;stroke-width:3.5}.edge-label{font:10px sans-serif;fill:#14264f}`;
+  const bg=document.createElementNS("http://www.w3.org/2000/svg","rect");
+  bg.setAttribute("x",minx); bg.setAttribute("y",miny); bg.setAttribute("width",w); bg.setAttribute("height",h); bg.setAttribute("fill","#ffffff");
+  clone.insertBefore(bg, clone.firstChild);
+  clone.insertBefore(style, clone.firstChild);
+  return { str:new XMLSerializer().serializeToString(clone), w, h };
+}
+function exportSVG(){ download(buildStandaloneSVG().str, slug()+".svg", "image/svg+xml"); }
+function exportPNG(){
+  const {str,w,h}=buildStandaloneSVG();
+  const img=new Image();
+  img.onload=()=>{
+    const scale=2, c=document.createElement("canvas"); c.width=Math.round(w*scale); c.height=Math.round(h*scale);
+    const ctx=c.getContext("2d"); ctx.scale(scale,scale); ctx.drawImage(img,0,0);
+    c.toBlob(b=>{ const url=URL.createObjectURL(b); const a=document.createElement("a"); a.href=url; a.download=slug()+".png"; a.click(); URL.revokeObjectURL(url); }, "image/png");
+  };
+  img.onerror=()=>alert("PNG export failed in this browser; try SVG export.");
+  img.src="data:image/svg+xml;base64,"+btoa(unescape(encodeURIComponent(str)));
+}
+
+/* ---------- CSV exports ---------- */
+function exportPathsCSV(){
+  const a=analyze();
+  const rows=[["#","entry_vector","consequence","length_nodes","full_chain"]];
+  a.paths.forEach((p,i)=>{
+    const labels=p.map(id=>nodeById(id).label);
+    rows.push([i+1, labels[0], labels[labels.length-1], p.length, labels.join(" -> ")]);
+  });
+  download(rows.map(r=>r.map(csvCell).join(",")).join("\n"), slug()+"-paths.csv", "text/csv");
+}
+function exportNodesCSV(){
+  const rows=[["id","type","label","enabled","in_paths","choke_point","note"]];
+  const a=analyze();
+  state.nodes.forEach(n=>{
+    rows.push([n.id, TYPES[n.type].label, n.label, n.enabled!==false, a.freq.get(n.id)||0, a.choke.has(n.id), n.note||""]);
+  });
+  download(rows.map(r=>r.map(csvCell).join(",")).join("\n"), slug()+"-nodes.csv", "text/csv");
+}
+
+/* ---------- report content (shared by Markdown + HTML report) ---------- */
+function reportData(){
+  const a=analyze();
+  const name=(state.meta.name||"Untitled model").trim();
+  const nodesByType=t=>state.nodes.filter(n=>n.type===t);
+  return {a, name, nodesByType};
+}
+function exportMarkdown(){
+  const {a,name,nodesByType}=reportData();
+  const L=[];
+  L.push(`# Attack Path Report — ${name}`);
+  L.push(``,`_Generated ${new Date().toLocaleString()}_`,``);
+  L.push(`## Summary`,``);
+  L.push(`| Metric | Value |`,`| --- | --- |`);
+  L.push(`| Consequences reachable from an entry vector | ${a.reachC.length} of ${a.byType.consequence} |`);
+  L.push(`| Complete attack paths available | ${a.paths.length}${a.capped?"+":""} |`);
+  L.push(`| Entry vectors / findings / capabilities / consequences | ${a.byType.entry} / ${a.byType.finding} / ${a.byType.artifact} / ${a.byType.consequence} |`);
+  L.push(`| Paths (edges) | ${state.edges.length} |`);
+  L.push(`| Longest / average chain length (nodes) | ${a.longest||"–"} / ${a.avg?a.avg.toFixed(1):"–"} |`);
+  L.push(`| Choke points (single points of failure) | ${a.choke.size} |`);
+  L.push(`| Nodes disabled (mitigated) | ${a.disabled.length} |`);
+  L.push(`| Unreachable consequences / dead-end entries / orphans | ${a.unreachable.length} / ${a.deadEntries.length} / ${a.orphans.length} |`);
+  L.push(``,`## Attack paths`,``);
+  if(a.paths.length){ a.paths.forEach((p,i)=>L.push(`${i+1}. ${p.map(id=>nodeById(id).label).join(" → ")}`)); }
+  else L.push(`_No complete entry-to-consequence paths._`);
+  ["entry","finding","artifact","consequence"].forEach(t=>{
+    const ns=nodesByType(t); if(!ns.length) return;
+    L.push(``,`## ${TYPES[t].label}s`,``);
+    ns.forEach(n=>L.push(`- **${n.label}**${n.enabled===false?" _(disabled)_":""}${a.choke.has(n.id)?" ⚠ choke point":""}${n.note?` — ${n.note}`:""}`));
+  });
+  if(a.choke.size){ L.push(``,`## Choke points (mitigation priorities)`,``); [...a.choke].forEach(id=>L.push(`- **${nodeById(id).label}** — appears in every path to at least one consequence`)); }
+  const obs=[];
+  if(a.unreachable.length) obs.push(`${a.unreachable.length} consequence(s) not currently reachable: ${a.unreachable.map(n=>n.label).join(", ")}`);
+  if(a.deadEntries.length) obs.push(`${a.deadEntries.length} entry vector(s) with no path to any consequence: ${a.deadEntries.map(n=>n.label).join(", ")}`);
+  if(a.orphans.length) obs.push(`${a.orphans.length} orphan node(s) with no connections: ${a.orphans.map(n=>n.label).join(", ")}`);
+  if(a.disabled.length) obs.push(`${a.disabled.length} node(s) disabled as mitigations: ${a.disabled.map(n=>n.label).join(", ")}`);
+  if(obs.length){ L.push(``,`## Observations`,``); obs.forEach(o=>L.push(`- ${o}`)); }
+  download(L.join("\n"), slug()+"-report.md", "text/markdown");
+}
+
+/* ---------- publish HTML report ---------- */
+function publishReport(){
+  const {a,name,nodesByType}=reportData();
+  const e=escapeHtml;
+  const svgStr=buildStandaloneSVG().str;
+  const statCard=(v,k,cls)=>`<div class="c ${cls||""}"><div class="v">${v}</div><div class="k">${k}</div></div>`;
+  const pathsHtml = a.paths.length
+    ? a.paths.map((p,i)=>`<li><span class="i">#${i+1}</span> ${p.map(id=>{const n=nodeById(id);return `<span class="chip t-${n.type}">${e(n.label)}</span>`;}).join('<span class="ar">▸</span>')}</li>`).join("")
+    : `<li class="muted">No complete entry-to-consequence paths.</li>`;
+  const invHtml = ["entry","finding","artifact","consequence"].map(t=>{
+    const ns=nodesByType(t); if(!ns.length) return "";
+    return `<h3><span class="dot t-${t}"></span>${e(TYPES[t].label)} <span class="n">(${ns.length})</span></h3><ul class="inv">`+
+      ns.map(n=>`<li><b>${e(n.label)}</b>${n.enabled===false?' <span class="tag off">disabled</span>':""}${a.choke.has(n.id)?' <span class="tag ck">choke point</span>':""}${n.note?`<div class="note">${e(n.note)}</div>`:""}</li>`).join("")+`</ul>`;
+  }).join("");
+  const chokeHtml = a.choke.size ? `<h2>Choke points — mitigation priorities</h2><p class="sub">Disabling any of these breaks every path to at least one consequence.</p><ul class="inv">`+[...a.choke].map(id=>`<li><b>${e(nodeById(id).label)}</b> <span class="tag ck">${e(TYPES[nodeById(id).type].label)}</span></li>`).join("")+`</ul>` : "";
+  const obs=[];
+  if(a.unreachable.length) obs.push(`<b>${a.unreachable.length}</b> consequence(s) not currently reachable: ${a.unreachable.map(n=>e(n.label)).join(", ")}`);
+  if(a.deadEntries.length) obs.push(`<b>${a.deadEntries.length}</b> entry vector(s) with no path to any consequence: ${a.deadEntries.map(n=>e(n.label)).join(", ")}`);
+  if(a.orphans.length) obs.push(`<b>${a.orphans.length}</b> orphan node(s) with no connections: ${a.orphans.map(n=>e(n.label)).join(", ")}`);
+  if(a.disabled.length) obs.push(`<b>${a.disabled.length}</b> node(s) disabled as mitigations: ${a.disabled.map(n=>e(n.label)).join(", ")}`);
+  const obsHtml = obs.length ? `<h2>Observations</h2><ul class="obs">`+obs.map(o=>`<li>${o}</li>`).join("")+`</ul>` : "";
+
+  const doc = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Attack Path Report — ${e(name)}</title><style>
+:root{--navy:#0d1b3e;--navy2:#14264f;--green:#2e9e5b;--gray:#6b7280;--xl:#e5e7eb;}
+*{box-sizing:border-box}body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--navy);background:#eef1f5;}
+.wrap{max-width:920px;margin:0 auto;background:#fff;box-shadow:0 2px 20px rgba(13,27,62,.12);}
+header{background:var(--navy);color:#fff;padding:26px 34px;}
+header h1{margin:0 0 4px;font-size:22px;}header .meta{color:#9ca3af;font-size:13px;}
+.bar{background:var(--navy2);padding:10px 34px;display:flex;gap:10px;}
+.bar button{background:var(--green);color:#fff;border:none;border-radius:6px;padding:8px 14px;font-size:13px;cursor:pointer;font-family:inherit;}
+.bar button.alt{background:#33487a;}
+main{padding:24px 34px 44px;}
+h2{font-size:16px;border-bottom:2px solid var(--xl);padding-bottom:6px;margin:30px 0 14px;}
+h3{font-size:13px;margin:16px 0 7px;display:flex;align-items:center;gap:7px;}h3 .n{color:var(--gray);font-weight:400;}
+.cards{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:6px;}
+.c{background:#f4f6fa;border:1px solid var(--xl);border-radius:8px;padding:12px;}
+.c .v{font-size:24px;font-weight:800;}.c .k{font-size:11px;color:var(--gray);margin-top:3px;line-height:1.3;}
+.c.green .v{color:var(--green);}.c.crit .v{color:#b03030;}.c.warn .v{color:#b0620f;}
+.diagram{border:1px solid var(--xl);border-radius:8px;overflow:auto;margin-top:8px;background:#fff;}
+.diagram svg{max-width:100%;height:auto;display:block;}
+ol.paths{list-style:none;padding:0;margin:0;}ol.paths li{padding:8px 10px;border:1px solid var(--xl);border-radius:7px;margin-bottom:7px;font-size:12px;line-height:1.9;}
+.i{font-weight:700;color:var(--green);margin-right:6px;}
+.chip{border-bottom:2px solid var(--navy2);padding:1px 2px;}
+.t-entry{border-color:#14264f;}.t-finding{border-color:#6b7280;}.t-artifact{border-color:#2e9e5b;}.t-consequence{border-color:#0d1b3e;}
+.ar{color:#9ca3af;margin:0 4px;}
+ul.inv{list-style:none;padding:0;margin:0 0 8px;}ul.inv li{padding:6px 0;border-bottom:1px dashed var(--xl);font-size:13px;}
+.note{color:var(--gray);font-size:12px;margin-top:2px;}
+.tag{font-size:10px;padding:1px 6px;border-radius:10px;margin-left:6px;}
+.tag.off{background:var(--xl);color:var(--gray);}.tag.ck{background:#fbe7cf;color:#8a4d0a;}
+.dot{width:12px;height:12px;border-radius:3px;display:inline-block;border:2px solid;}
+.dot.t-entry{background:#14264f;border-color:#0d1b3e;}.dot.t-finding{background:#e5e7eb;border-color:#6b7280;}.dot.t-artifact{background:#2e9e5b;border-color:#1f7a44;}.dot.t-consequence{background:#0d1b3e;border-color:#2e9e5b;}
+ul.obs{padding-left:18px;}ul.obs li{margin-bottom:6px;font-size:13px;}
+.sub{color:var(--gray);font-size:12px;margin:-8px 0 10px;}.muted{color:var(--gray);}
+footer{padding:18px 34px;color:var(--gray);font-size:11px;border-top:1px solid var(--xl);}
+@media print{.bar{display:none;}body{background:#fff;}.wrap{box-shadow:none;max-width:none;}}
+</style></head><body><div class="wrap">
+<header><h1>${e(name)}</h1><div class="meta">Attack Path Report · generated ${e(new Date().toLocaleString())}</div></header>
+<div class="bar"><button onclick="window.print()">🖨 Print / Save as PDF</button><button class="alt" onclick="dl()">⬇ Download this report (.html)</button></div>
+<main>
+<h2>Summary</h2>
+<div class="cards">
+${statCard(a.reachC.length+" / "+a.byType.consequence,"consequences reachable","green")}
+${statCard(a.paths.length+(a.capped?"+":""),"complete attack paths")}
+${statCard(a.choke.size,"choke points",a.choke.size?"crit":"")}
+${statCard(a.disabled.length,"nodes disabled")}
+${statCard(a.byType.entry,"entry vectors")}
+${statCard(a.byType.finding,"findings")}
+${statCard(a.byType.artifact,"capabilities")}
+${statCard(a.longest||"–","longest chain")}
+</div>
+<h2>Attack map</h2><div class="diagram">${svgStr}</div>
+<h2>Attack paths <span class="n" style="color:var(--gray);font-weight:400;font-size:13px">(${a.paths.length}${a.capped?"+":""})</span></h2>
+<ol class="paths">${pathsHtml}</ol>
+${chokeHtml}
+<h2>Node inventory</h2>${invHtml}
+${obsHtml}
+</main>
+<footer>Attack Path Mapper — manual model, all data entered by the analyst. Framework references: MITRE ATT&amp;CK and the Cyber Kill Chain.</footer>
+</div>
+<script>function dl(){var b=new Blob(['<'+'!DOCTYPE html>'+document.documentElement.outerHTML],{type:'text/html'});var u=URL.createObjectURL(b);var a=document.createElement('a');a.href=u;a.download=${JSON.stringify(slug()+"-report.html")};a.click();URL.revokeObjectURL(u);}<\/script>
+</body></html>`;
+
+  const w=window.open("","_blank");
+  if(!w){ download(doc, slug()+"-report.html", "text/html"); alert("Pop-up blocked — the report was downloaded instead."); return; }
+  w.document.open(); w.document.write(doc); w.document.close();
+}
+
+/* ---------- menu wiring ---------- */
+function closeMenus(){ document.querySelectorAll(".menu.open").forEach(m=>m.classList.remove("open")); }
+document.querySelectorAll(".menu").forEach(menu=>{
+  menu.querySelector("button").addEventListener("click",ev=>{ ev.stopPropagation(); const open=menu.classList.contains("open"); closeMenus(); if(!open) menu.classList.add("open"); });
+});
+document.addEventListener("click",closeMenus);
+const ACTIONS={
+  "save-file":saveFile, "load-file":()=>document.getElementById("fileInput").click(),
+  "save-ls":saveToBrowser, "restore-ls":restoreFromBrowser,
+  "png":exportPNG, "svg":exportSVG, "csv-paths":exportPathsCSV, "csv-nodes":exportNodesCSV,
+  "md":exportMarkdown, "json":saveFile,
+};
+document.querySelectorAll(".menu-panel [data-act]").forEach(b=>{
+  b.addEventListener("click",()=>{ closeMenus(); const fn=ACTIONS[b.dataset.act]; if(fn) fn(); });
+});
+document.getElementById("btnReport").addEventListener("click",publishReport);
+
+/* ---------- choke point highlight ---------- */
+document.getElementById("btnChoke").addEventListener("click",()=>{
+  const btn=document.getElementById("btnChoke");
+  if(chokeSet.size){ chokeSet=new Set(); btn.classList.remove("active"); }
+  else { chokeSet = analyze().choke; btn.classList.add("active"); if(!chokeSet.size) alert("No choke points — no single node is required by all paths to a consequence."); }
+  render();
+});
+
 document.getElementById("btnClear").addEventListener("click",()=>{
-  if(confirm("Clear the entire map?")){ state={nodes:[],edges:[]}; selected=null; clearFocus(); select(null); document.getElementById("pathList").innerHTML='<div class="empty">Cleared.</div>'; document.getElementById("pathCount").textContent=""; render(); }
+  if(confirm("Clear the entire map?")){ state={meta:{name:state.meta.name||""},nodes:[],edges:[]}; selected=null; chokeSet=new Set(); clearFocus(); select(null); document.getElementById("pathList").innerHTML='<div class="empty">Cleared.</div>'; document.getElementById("pathCount").textContent=""; render(); }
 });
 
 /* ---------- sample model ---------- */
@@ -697,13 +1058,22 @@ function loadSample(){
     E(n.foothold,n.creds), E(n.creds,n.lateral),
     E(n.lateral,n.exfil), E(n.lateral,n.ransom), E(n.foothold,n.ransom),
   ];
-  selected=null; clearFocus(); select(null); render(); fitView(); findRootPaths();
+  state.meta = {name:"Lab example — clinic network"};
+  modelNameEl.value = state.meta.name;
+  selected=null; chokeSet=new Set(); clearFocus(); select(null); render(); fitView(); findRootPaths();
 }
 
 /* ---------- boot ---------- */
 view = {x:0,y:0,k:1};
-render();
-fitView();
+(function boot(){
+  try{
+    const raw=localStorage.getItem(LSKEY);
+    if(raw){ const d=JSON.parse(raw); if(d && ((d.nodes&&d.nodes.length)||d.meta&&d.meta.name)){ state={meta:d.meta||{name:""}, nodes:d.nodes||[], edges:d.edges||[]}; state.nodes.forEach(n=>{ if(n.enabled===undefined)n.enabled=true; if(n.note===undefined)n.note=""; }); } }
+  }catch(err){}
+  modelNameEl.value = state.meta.name||"";
+  render();
+  fitView();
+})();
 </script>
 </body>
 </html>
